@@ -1,0 +1,388 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "../lib/humanizer"
+
+# ── Color Helpers ────────────────────────────────────────
+
+SUPPORTS_COLOR = $stdout.tty? && !ENV["NO_COLOR"]
+
+def color(code, s)
+  SUPPORTS_COLOR ? "\e[#{code}m#{s}\e[0m" : s
+end
+
+def red(s)     = color(31, s)
+def green(s)   = color(32, s)
+def yellow(s)  = color(33, s)
+def cyan(s)    = color(36, s)
+def magenta(s) = color(35, s)
+def bold(s)    = color(1, s)
+def dim(s)     = color(2, s)
+
+def score_badge(s)
+  if s <= 25 then green("🟢 #{s}/100")
+  elsif s <= 50 then yellow("🟡 #{s}/100")
+  elsif s <= 75 then magenta("🟠 #{s}/100")
+  else red("🔴 #{s}/100")
+  end
+end
+
+def score_label(s)
+  if s <= 19 then "Mostly human-sounding"
+  elsif s <= 44 then "Lightly AI-touched"
+  elsif s <= 69 then "Moderately AI-influenced"
+  else "Heavily AI-generated"
+  end
+end
+
+def burstiness_label(b)
+  if b >= 0.7 then green("(high — human-like)")
+  elsif b >= 0.45 then yellow("(moderate)")
+  elsif b >= 0.25 then yellow("(low — somewhat uniform)")
+  else red("(very low — AI-like)")
+  end
+end
+
+def ttr_label(ttr, wc)
+  if wc < 100 then dim("(too short to assess)")
+  elsif ttr >= 0.6 then green("(high — diverse)")
+  elsif ttr >= 0.45 then yellow("(moderate)")
+  else red("(low — repetitive)")
+  end
+end
+
+def truncate(str, len)
+  return "" unless str.is_a?(String)
+  str.length > len ? "#{str[0, len]}..." : str
+end
+
+# ── Arg Parsing ──────────────────────────────────────────
+
+args = ARGV.dup
+
+# Handle top-level --help before command parsing
+if args.include?("--help") || args.include?("-h")
+  args.delete("--help")
+  args.delete("-h")
+end
+
+command = args.shift
+
+flags = {
+  json: args.delete("--json"),
+  verbose: args.delete("--verbose") || args.delete("-v"),
+  autofix: args.delete("--autofix"),
+  help: ARGV.include?("--help") || ARGV.include?("-h") || command.nil?,
+  file: nil,
+  patterns: nil,
+  threshold: nil,
+}
+
+# Parse -f / --file
+if (idx = args.index("-f") || args.index("--file"))
+  flags[:file] = args[idx + 1]
+  args.slice!(idx, 2)
+end
+
+# Parse --patterns
+if (idx = args.index("--patterns"))
+  flags[:patterns] = args[idx + 1]&.split(",")&.map(&:to_i)&.select { |n| n > 0 }
+  args.slice!(idx, 2)
+end
+
+# Parse --threshold
+if (idx = args.index("--threshold"))
+  flags[:threshold] = args[idx + 1]&.to_i
+  args.slice!(idx, 2)
+end
+
+# Positional file argument
+flags[:file] ||= args.first unless args.first&.start_with?("-")
+
+# ── Help ─────────────────────────────────────────────────
+
+HELP = <<~HELP
+  #{bold('humanizer')} — Detect and remove AI writing patterns
+
+  #{bold('Usage:')}
+    humanizer <command> [file] [options]
+
+  #{bold('Commands:')}
+    #{cyan('analyze')}      Full analysis report with pattern matches
+    #{cyan('score')}        Quick score (0-100, higher = more AI-like)
+    #{cyan('humanize')}     Humanization suggestions with guidance
+    #{cyan('report')}       Full markdown report (for piping to files)
+    #{cyan('suggest')}      Show only suggestions, grouped by priority
+    #{cyan('stats')}        Show statistical text analysis only
+
+  #{bold('Options:')}
+    -f, --file <path>       Read text from file (otherwise reads stdin)
+    --json                  Output as JSON
+    --verbose, -v           Show all matches (not just top 5 per pattern)
+    --autofix               Apply safe mechanical fixes (humanize only)
+    --patterns <ids>        Only check specific pattern IDs (comma-separated)
+    --threshold <n>         Only show patterns with weight above threshold
+    --help, -h              Show this help
+
+  #{bold('Examples:')}
+    #{dim('# Quick score')}
+    echo "This is a testament to..." | humanizer score
+
+    #{dim('# Analyze a file')}
+    humanizer analyze essay.txt
+
+    #{dim('# Full markdown report')}
+    humanizer report article.txt > report.md
+
+    #{dim('# Humanize with auto-fixes')}
+    humanizer humanize --autofix -f article.txt
+
+  #{bold('Score badges:')}
+    🟢 0-25    Mostly human-sounding
+    🟡 26-50   Lightly AI-touched
+    🟠 51-75   Moderately AI-influenced
+    🔴 76-100  Heavily AI-generated
+HELP
+
+# ── Read Input ───────────────────────────────────────────
+
+def read_input(flags)
+  if flags[:file]
+    File.read(flags[:file])
+  elsif !$stdin.tty?
+    $stdin.read
+  else
+    $stderr.puts red("Error: No input. Pipe text or use -f <file>. Run with --help for usage.")
+    exit 1
+  end
+rescue Errno::ENOENT => e
+  $stderr.puts red("Error: #{e.message}")
+  exit 1
+end
+
+# ── Formatters ───────────────────────────────────────────
+
+def format_colored_report(result, threshold: nil)
+  lines = []
+  lines << ""
+  lines << bold("  ┌──────────────────────────────────────────────┐")
+  lines << bold("  │        AI WRITING PATTERN ANALYSIS           │")
+  lines << bold("  └──────────────────────────────────────────────┘")
+  lines << ""
+
+  filled = (result.score / 5.0).round
+  bar_color_fn = result.score <= 25 ? method(:green) : result.score <= 50 ? method(:yellow) : result.score <= 75 ? method(:magenta) : method(:red)
+  bar = bar_color_fn.call("█" * filled) + dim("░" * (20 - filled))
+  lines << "  Score: #{score_badge(result.score)}  [#{bar}]"
+  lines << "  #{dim("Words: #{result.word_count}  |  Matches: #{result.total_matches}  |  Pattern: #{result.pattern_score}  |  Uniformity: #{result.uniformity_score}")}"
+  lines << ""
+  lines << "  #{result.summary}"
+  lines << ""
+
+  if result.stats
+    s = result.stats
+    lines << bold("  ── Statistics ──────────────────────────────────")
+    lines << "  Burstiness: #{s.burstiness}  #{burstiness_label(s.burstiness)}"
+    lines << "  Type-token ratio: #{s.type_token_ratio}  #{ttr_label(s.type_token_ratio, s.word_count)}"
+    lines << "  Trigram repetition: #{s.trigram_repetition}"
+    lines << "  Readability: #{s.flesch_kincaid} grade level"
+    lines << ""
+  end
+
+  lines << bold("  ── Categories ──────────────────────────────────")
+  result.categories.each do |_, data|
+    if data[:matches] > 0
+      lines << "  #{cyan(data[:label])}: #{data[:matches]} matches #{dim("(#{data[:patterns_detected].join(', ')})")}"
+    end
+  end
+  lines << ""
+
+  if result.findings.any?
+    lines << bold("  ── Findings ──────────────────────────────────")
+    result.findings.each do |finding|
+      next if threshold && finding[:weight] < threshold
+
+      weight_color = finding[:weight] >= 4 ? method(:red) : finding[:weight] >= 2 ? method(:yellow) : method(:cyan)
+      lines << ""
+      lines << "  #{weight_color.call("[#{finding[:pattern_id]}]")} #{bold(finding[:pattern_name])} #{dim("(×#{finding[:match_count]}, weight: #{finding[:weight]})")}"
+      lines << "      #{dim(finding[:description])}"
+      finding[:matches].each do |match|
+        loc = match[:line] ? "L#{match[:line]}" : ""
+        preview = match[:match].is_a?(String) ? match[:match][0, 80] : ""
+        lines << "      #{dim(loc)}: \"#{preview}\""
+        lines << "            #{green('→')} #{match[:suggestion]}" if match[:suggestion]
+      end
+      if finding[:truncated]
+        lines << "      #{dim("... and #{finding[:match_count] - finding[:matches].length} more")}"
+      end
+    end
+  end
+
+  lines << ""
+  lines << dim("  ──────────────────────────────────────────────")
+  lines.join("\n")
+end
+
+def format_stats_report(stats)
+  lines = []
+  lines << ""
+  lines << bold("  ┌──────────────────────────────────────────────┐")
+  lines << bold("  │          TEXT STATISTICS ANALYSIS             │")
+  lines << bold("  └──────────────────────────────────────────────┘")
+  lines << ""
+  lines << bold("  ── Sentences ──────────────────────────────────")
+  lines << "    Count:            #{stats.sentence_count}"
+  lines << "    Avg length:       #{stats.avg_sentence_length} words"
+  lines << "    Std deviation:    #{stats.sentence_length_std_dev}"
+  lines << "    Burstiness:       #{stats.burstiness}  #{burstiness_label(stats.burstiness)}"
+  lines << ""
+  lines << bold("  ── Vocabulary ─────────────────────────────────")
+  lines << "    Total words:      #{stats.word_count}"
+  lines << "    Unique words:     #{stats.unique_word_count}"
+  lines << "    Type-token ratio: #{stats.type_token_ratio}  #{ttr_label(stats.type_token_ratio, stats.word_count)}"
+  lines << "    Avg word length:  #{stats.avg_word_length}"
+  lines << ""
+  lines << bold("  ── Structure ──────────────────────────────────")
+  lines << "    Paragraphs:       #{stats.paragraph_count}"
+  lines << "    Avg para length:  #{stats.avg_paragraph_length} words"
+  lines << "    Trigram repeat:   #{stats.trigram_repetition}"
+  lines << ""
+  lines << bold("  ── Readability ────────────────────────────────")
+  lines << "    Flesch-Kincaid:   #{stats.flesch_kincaid} grade level"
+  lines << "    Function words:   #{stats.function_word_ratio} (#{(stats.function_word_ratio * 100).round(1)}%)"
+  lines << ""
+  lines.join("\n")
+end
+
+def format_grouped_suggestions(result)
+  lines = []
+  lines << ""
+  lines << bold("  Score: #{score_badge(result[:score])}  (#{score_label(result[:score])})")
+  lines << "  #{dim("#{result[:total_issues]} issues found in #{result[:word_count]} words")}"
+  lines << ""
+
+  if result[:critical].any?
+    lines << red(bold("  ━━ CRITICAL (remove these first) ━━━━━━━━━━━━"))
+    result[:critical].each do |s|
+      lines << "  #{red('●')} L#{s[:line]}: #{bold(s[:pattern])}"
+      lines << "    #{dim(truncate(s[:text], 60))}"
+      lines << "    #{green('→')} #{s[:suggestion]}"
+    end
+    lines << ""
+  end
+
+  if result[:important].any?
+    lines << yellow(bold("  ━━ IMPORTANT (noticeable AI patterns) ━━━━━━━"))
+    result[:important].each do |s|
+      lines << "  #{yellow('●')} L#{s[:line]}: #{bold(s[:pattern])}"
+      lines << "    #{dim(truncate(s[:text], 60))}"
+      lines << "    #{green('→')} #{s[:suggestion]}"
+    end
+    lines << ""
+  end
+
+  if result[:minor].any?
+    lines << cyan(bold("  ━━ MINOR (subtle tells) ━━━━━━━━━━━━━━━━━━━━"))
+    result[:minor].each do |s|
+      lines << "  #{cyan('●')} L#{s[:line]}: #{bold(s[:pattern])}"
+      lines << "    #{dim(truncate(s[:text], 60))}"
+      lines << "    #{green('→')} #{s[:suggestion]}"
+    end
+    lines << ""
+  end
+
+  if result[:guidance].any?
+    lines << cyan(bold("  ━━ GUIDANCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+    result[:guidance].each { |tip| lines << "  #{cyan('•')} #{tip}" }
+    lines << ""
+  end
+
+  if result[:style_tips]&.any?
+    lines << magenta(bold("  ━━ STYLE TIPS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+    result[:style_tips].each { |t| lines << "  #{magenta('◦')} #{t[:tip]}" }
+    lines << ""
+  end
+
+  lines.join("\n")
+end
+
+# ── Main ─────────────────────────────────────────────────
+
+if flags[:help] || command.nil?
+  puts HELP
+  exit(command ? 0 : 1)
+end
+
+text = read_input(flags)
+if text.strip.empty?
+  $stderr.puts red("Error: Empty input.")
+  exit 1
+end
+
+opts = {
+  verbose: !!flags[:verbose],
+  patterns_to_check: flags[:patterns],
+}
+
+case command
+when "analyze"
+  result = Humanizer.analyze(text, **opts)
+  if flags[:json]
+    puts Humanizer::Analyzer.format_json(result)
+  else
+    puts format_colored_report(result, threshold: flags[:threshold])
+  end
+
+when "score"
+  s = Humanizer.score(text)
+  if flags[:json]
+    require "json"
+    puts JSON.generate({ score: s })
+  else
+    puts score_badge(s)
+  end
+
+when "humanize"
+  result = Humanizer.humanize(text, autofix: !!flags[:autofix], verbose: !!flags[:verbose])
+  if flags[:json]
+    require "json"
+    puts JSON.pretty_generate(result)
+  else
+    # Simple formatted output
+    puts format_grouped_suggestions(result)
+    if flags[:autofix] && result[:autofix]
+      puts ""
+      puts bold("── AUTO-FIXED TEXT ──────────────────────────────")
+      puts ""
+      puts result[:autofix][:text]
+      puts ""
+      puts dim("════════════════════════════════════════════════")
+    end
+  end
+
+when "report"
+  result = Humanizer.analyze(text, verbose: true, patterns_to_check: flags[:patterns])
+  puts Humanizer::Analyzer.format_markdown(result)
+
+when "suggest"
+  result = Humanizer.humanize(text, verbose: !!flags[:verbose])
+  if flags[:json]
+    require "json"
+    puts JSON.pretty_generate(result)
+  else
+    puts format_grouped_suggestions(result)
+  end
+
+when "stats"
+  stats = Humanizer::Stats.compute(text)
+  if flags[:json]
+    require "json"
+    puts JSON.pretty_generate(stats.to_h)
+  else
+    puts format_stats_report(stats)
+  end
+
+else
+  $stderr.puts red("Unknown command: #{command}. Run with --help for usage.")
+  exit 1
+end
