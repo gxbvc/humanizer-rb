@@ -29,6 +29,9 @@ module Humanizer
       holistic holistically synergistic
       actionable impactful learnings cadence bandwidth
       net-net value-add
+      straightforward
+      supercharge supercharging supercharged supercharges
+      future-proof future-proofing future-proofed
     ].freeze
 
     # Multi-word tier 1 entries (need separate handling)
@@ -242,6 +245,31 @@ module Humanizer
       { pattern: /\bmove the needle\b/i, tier: 1, fix: "make progress / have impact" },
       { pattern: /\bopen the kimono\b/i, tier: 1, fix: "share / be transparent" },
       { pattern: /\bdrink the Kool-Aid\b/i, tier: 2, fix: "believe / accept" },
+
+      # Throat-clearing transitions
+      { pattern: /\bto put (?:this|it) in perspective\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\bwhat makes this (?:particularly )?(?:interesting|fascinating|notable)\b/i, tier: 1, fix: "(just say what it is)" },
+      { pattern: /\bthe implications (?:here )?are\b/i, tier: 1, fix: "(state the implication)" },
+      { pattern: /\bin other words\b/i, tier: 2, fix: "(rewrite the first version)" },
+
+      # Engagement bait
+      { pattern: /\blet that sink in\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\bread that again\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\bfull stop\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\bthis changes everything\b/i, tier: 1, fix: "(be specific about what changed)" },
+      { pattern: /\bare you paying attention\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\byou'?re not ready for (?:this|what)\b/i, tier: 1, fix: "(remove)" },
+
+      # AI cringe
+      { pattern: /\b10x (?:your |my |their )?(?:productivity|output|results)\b/i, tier: 1, fix: "(be specific)" },
+      { pattern: /\bthe AI revolution\b/i, tier: 1, fix: "(be specific)" },
+      { pattern: /\bin the age of AI\b/i, tier: 1, fix: "(remove or be specific)" },
+
+      # Fake-insider framing
+      { pattern: /\bhere'?s (?:the part|what) nobody'?s talking about\b/i, tier: 1, fix: "(remove — just make the point)" },
+      { pattern: /\bwhat nobody tells you\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\bmost people don'?t realize\b/i, tier: 1, fix: "(remove)" },
+      { pattern: /\bnobody (?:talks about|mentions|tells you)\b/i, tier: 1, fix: "(remove)" },
     ].freeze
 
     # ── Function Words ─────────────────────────────────────

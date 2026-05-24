@@ -222,14 +222,18 @@ module Humanizer
       ),
 
       Pattern.new(
-        id: 9, name: "Negative parallelisms", category: :language, weight: 3,
-        description: '"It\'s not just X, it\'s Y" or "That\'s not X, it\'s Y" or "Not only X but Y" constructions — overused by LLMs.',
+        id: 9, name: "Negative parallelisms", category: :language, weight: 4,
+        description: '"This isn\'t X. This is Y." and variants — the FATAL AI tell. Includes "Not only X but Y" and reframes.',
         detector: ->(text) {
+          # Same-sentence with just/merely/only/simply, separated by ,/;/em dash
           neg_parallel = /\b(?:it'?s|this is) not (?:just|merely|only|simply) .{3,60}(?:,|;|\u2014)\s*(?:it'?s|this is|but)\b/i
           not_only = /\bnot only .{3,60} but (?:also )?\b/i
-          # Plain "That's not X, it's Y" reframe without just/merely/only/simply
+          # Plain "That's not X, it's Y" reframe within one sentence
           neg_reframe = /\b(?:that'?s|it'?s|this is(?:n'?t)) not .{3,60}(?:,|;|\u2014)\s*(?:it'?s|that'?s|this is)\b/i
-          results = TextUtils.find_matches(text, neg_parallel, 'Rewrite directly. State what the thing IS, not what it "isn\'t just".', confidence: "high")
+          # Period-separated: "This isn't X. This is Y." (Lehmann's FATAL pattern)
+          fatal_period = /\b(?:this|that|it)(?:\s+is\s*n.?t|\s+is\s+not|.?s\s+not) (?:just |merely |only |simply )?[^.!?\n]{2,80}[.!?]\s+(?:this|that|it)(?:\s+is|.?s)\b/i
+          results = TextUtils.find_matches(text, fatal_period, 'FATAL AI pattern: "This isn\'t X. This is Y." Just state what it IS.', confidence: "high")
+          results.concat TextUtils.find_matches(text, neg_parallel, 'Rewrite directly. State what the thing IS, not what it "isn\'t just".', confidence: "high")
           results.concat TextUtils.find_matches(text, not_only, 'Simplify. Remove the "not only...but also" frame.', confidence: "medium")
           results.concat TextUtils.find_matches(text, neg_reframe, 'AI reframe pattern: "That\'s not X, it\'s Y." Just say what it is directly.', confidence: "medium")
           results
