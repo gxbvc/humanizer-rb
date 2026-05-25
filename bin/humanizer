@@ -147,7 +147,7 @@ HELP
 # ── Read Input ───────────────────────────────────────────
 
 def read_input(flags)
-  if flags[:file]
+  raw = if flags[:file]
     File.read(flags[:file])
   elsif !$stdin.tty?
     $stdin.read
@@ -155,6 +155,7 @@ def read_input(flags)
     $stderr.puts red("Error: No input. Pipe text or use -f <file>. Run with --help for usage.")
     exit 1
   end
+  raw.force_encoding("UTF-8")
 rescue Errno::ENOENT => e
   $stderr.puts red("Error: #{e.message}")
   exit 1

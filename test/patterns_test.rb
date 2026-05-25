@@ -3,8 +3,15 @@
 require "test_helper"
 
 class PatternsTest < Minitest::Test
-  def test_all_28_patterns_exist
-    assert_equal 28, Humanizer::Patterns::PATTERNS.length
+  def test_all_29_patterns_exist
+    assert_equal 29, Humanizer::Patterns::PATTERNS.length
+  end
+
+  def test_invisible_unicode_detected
+    text = "Hello\u200Bworld this is\u200C a test\u200D with hidden chars."
+    result = Humanizer.analyze(text)
+    unicode_finding = result.findings.find { |f| f[:pattern_id] == 29 }
+    assert unicode_finding, "Should detect invisible unicode"
   end
 
   def test_each_pattern_has_required_fields
@@ -76,7 +83,7 @@ class PatternsTest < Minitest::Test
 
   def test_registry
     registry = Humanizer::Patterns::Registry.new
-    assert_equal 28, registry.all.length
+    assert_equal 29, registry.all.length
     assert registry.find(7), "Should find pattern 7"
     assert registry.by_category(:language).length > 0
     assert registry.categories.include?(:language)

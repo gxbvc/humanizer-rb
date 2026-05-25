@@ -338,7 +338,7 @@ module Humanizer
       ),
 
       Pattern.new(
-        id: 14, name: "Boldface overuse", category: :style, weight: 2,
+        id: 14, name: "Boldface overuse", category: :style, weight: 0,
         description: "Mechanical emphasis of phrases in bold. AI uses **bold** as a highlighting crutch.",
         detector: ->(text) {
           bold_matches = text.scan(/\*\*[^*]+\*\*/)
@@ -600,6 +600,21 @@ module Humanizer
           ack_patterns.flat_map { |re|
             TextUtils.find_matches(text, re, "Just answer. Don't restate the question.")
           }
+        }
+      ),
+
+      Pattern.new(
+        id: 29, name: "Invisible unicode obfuscation", category: :style, weight: 4,
+        description: "Hidden unicode characters (zero-width chars, soft hyphens, non-breaking spaces) used to evade detectors or distort text.",
+        detector: ->(text) {
+          hidden = /[\u200B\u200C\u200D\u2060\uFEFF\u00AD]/
+          nbsp = /[\u00A0\u202F]/
+          results = TextUtils.find_matches(text, hidden, "Remove hidden unicode characters. Some tools insert these to game detectors.", confidence: "high")
+          # A single NBSP is often harmless (copy/paste from docs).
+          # Flag when density suggests obfuscation or accidental corruption.
+          nbsp_matches = TextUtils.find_matches(text, nbsp, "Replace non-breaking spaces with regular spaces unless formatting requires them.", confidence: "medium")
+          results.concat(nbsp_matches) if nbsp_matches.length >= 2
+          results
         }
       ),
     ].freeze
