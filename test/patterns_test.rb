@@ -3,8 +3,55 @@
 require "test_helper"
 
 class PatternsTest < Minitest::Test
-  def test_all_29_patterns_exist
-    assert_equal 29, Humanizer::Patterns::PATTERNS.length
+  def test_all_32_patterns_exist
+    assert_equal 32, Humanizer::Patterns::PATTERNS.length
+  end
+
+  def finding_for(text, id)
+    Humanizer.analyze(text).findings.find { |f| f[:pattern_id] == id }
+  end
+
+  def test_inanimate_subject_with_animate_verb_detected
+    text = "The parser swallows that error. Then `retry()` thinks the job worked. The queue wants a fresh token."
+    finding = finding_for(text, 30)
+    assert finding, "Should detect inanimate subjects with animate verbs"
+    assert_equal 3, finding[:match_count]
+  end
+
+  def test_inanimate_subject_ignores_people_and_code_doc_verbs
+    text = "The engineer thinks the plan is fine. The function expects a string and returns a hash. My dad wants coffee."
+    assert_nil finding_for(text, 30)
+  end
+
+  def test_reduced_object_relatives_need_three_hits
+    two = "The route we took was slow. The part you wanted costs forty dollars."
+    assert_nil finding_for(two, 31), "Two reduced relatives is normal human writing"
+
+    three = "The approach we chose is slow. The state you set was lost. The test I added passes. Ship it."
+    finding = finding_for(three, 31)
+    assert finding, "Three or more reduced relatives should be flagged"
+    assert_equal 3, finding[:match_count]
+  end
+
+  def test_reduced_object_relatives_ignore_conjunction_before_pronoun
+    text = "The team and you decide. The cat and we want food. A dog or they need water. The plan and I need time."
+    assert_nil finding_for(text, 31)
+  end
+
+  def test_denominal_verbs_detected
+    finding = finding_for("Please footnote it and roadmap this for next quarter.", 32)
+    assert finding, "Should detect ad hoc denominal verbs"
+    assert_equal 2, finding[:match_count]
+  end
+
+  def test_denominal_verbs_ignore_nouns
+    assert_nil finding_for("Add a footnote to the calendar and check the roadmap.", 32)
+  end
+
+  def test_new_signals_leave_plain_human_text_alone
+    text = "Called the plumber this morning. He can come Thursday between 8 and noon. The leak is under the kitchen sink and it drips about once a second."
+    assert_operator Humanizer.score(text), :<=, 10
+    [ 30, 31, 32 ].each { |id| assert_nil finding_for(text, id) }
   end
 
   def test_invisible_unicode_detected
@@ -83,7 +130,7 @@ class PatternsTest < Minitest::Test
 
   def test_registry
     registry = Humanizer::Patterns::Registry.new
-    assert_equal 29, registry.all.length
+    assert_equal 32, registry.all.length
     assert registry.find(7), "Should find pattern 7"
     assert registry.by_category(:language).length > 0
     assert registry.categories.include?(:language)

@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.email         = ["christian@gen.co"]
 
   spec.summary       = "Detect AI-generated writing patterns"
-  spec.description   = "Scores text 0-100 for AI writing patterns using 28 pattern detectors, 500+ vocabulary terms, and statistical text analysis. Ruby port of the humanizer Node.js tool."
+  spec.description   = "Scores text 0-100 for AI writing patterns using 32 pattern detectors, 500+ vocabulary terms, and statistical text analysis. Ruby port of the humanizer Node.js tool."
   spec.homepage      = "https://github.com/gxbvc/humanizer-rb"
   spec.license       = "MIT"
 

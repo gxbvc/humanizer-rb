@@ -1,6 +1,6 @@
 # humanizer-rb
 
-Detect AI-generated writing patterns. Scores text 0-100 using 28 pattern detectors, 500+ vocabulary terms, and statistical text analysis.
+Detect AI-generated writing patterns. Scores text 0-100 using 32 pattern detectors, 500+ vocabulary terms, and statistical text analysis.
 
 > **Ruby port of [humanizer](https://github.com/christiangenco/humanizer)** (Node.js). Same detection engine, same scoring algorithm, zero dependencies.
 
@@ -94,9 +94,9 @@ humanizer analyze --json essay.txt
 
 The score combines three signals:
 
-1. **Pattern matches (70%)** — 28 detectors scan for AI writing patterns across 5 categories:
+1. **Pattern matches (70%)** — 32 detectors scan for AI writing patterns across 5 categories:
    - **Content**: significance inflation, promotional language, vague attributions
-   - **Language**: AI vocabulary (500+ words in 3 tiers), copula avoidance, synonym cycling
+   - **Language**: AI vocabulary (500+ words in 3 tiers), copula avoidance, synonym cycling, and three psycholinguistic signals (see below)
    - **Style**: em dash overuse, boldface overuse, emoji decoration, curly quotes
    - **Communication**: chatbot artifacts, sycophantic tone, reasoning chain artifacts
    - **Filler**: wordy phrases, excessive hedging, generic conclusions
@@ -108,6 +108,18 @@ The score combines three signals:
    - Sentence length standard deviation
 
 3. **Category breadth** — more diverse AI signals = higher score
+
+### Psycholinguistic signals (new in 0.2.0)
+
+Clark, Martin & Mahowald, ["Why is AI-generated language so hard to understand?"](https://arxiv.org/abs/2610.29162) (arXiv 2610.29162, CC BY 4.0, Oct 2026) compare frontier model text with human text and find constructions that cost human readers effort and that models overuse. The paper reads them from a dependency parse. This gem has no parser, so it uses word lists and patterns for three of them:
+
+| # | Detector | Example | Notes |
+|---|----------|---------|-------|
+| 30 | Inanimate subject with animate verb | "the parser swallows that error", "`fetch()` wants a token" | Verbs code docs use for things ("expects", "returns", "takes") are not on the list. |
+| 31 | Reduced object relative clauses | "the approach we chose", "the state you set" | Humans write these too, so it fires only at 3 or more, at 1 per 100 words or denser. Weight 1. |
+| 32 | Ad hoc denominal verbs | "footnote it", "roadmap this" | Short list of nouns that are not normally verbs. |
+
+Not built, because each needs a parser or a reference corpus: dependency length, stacked noun compounds (3 or more nouns in a row), and rare-n-gram rate. These are heuristics, not the paper's measurements, and a hit is a hint, not proof.
 
 ## Rails integration
 

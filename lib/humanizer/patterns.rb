@@ -67,6 +67,49 @@ module Humanizer
       /\bacts as(?: a)?\b/i, /\boperates as(?: a)?\b/i,
     ].freeze
 
+    # ── Psycholinguistic signals (Clark, Martin & Mahowald 2026, arXiv:2610.29162) ──
+
+    INANIMATE_SUBJECT_NOUNS = %w[
+      code function method class module test script file config configuration query parser model
+      system tool endpoint server service pipeline build check hook library framework approach
+      design plan result output error bug schema field value token cache queue job commit branch
+      patch fix prompt data log report doc page app program compiler linter formatter loader
+      handler wrapper middleware database table index request response runner template component
+    ].freeze
+
+    # Verbs that normally need a person as the subject. Verbs that code docs use for things
+    # ("expects", "accepts", "returns", "takes", "needs", "tries") are left out on purpose.
+    ANIMATE_ONLY_VERBS = %w[
+      swallow swallows swallowed eat eats ate think thinks know knows knew believe believes
+      believed decide decides decided prefer prefers preferred hope hopes hoped want wants wanted
+      forget forgets forgot remember remembers remembered refuse refuses refused trust trusts
+      trusted love loves loved hate hates hated fear fears feared worry worries pretend pretends
+      pretended whisper whispers whispered scream screams screamed shout shouts shouted cry cries
+      cried breathe breathes sleep sleeps starve starves starved dream dreams dreamed chew chews
+      chewed gobble gobbles gobbled choke chokes choked bite bites panic panics panicked
+    ].freeze
+
+    REDUCED_RELATIVE_VERBS = %w[
+      need needed want wanted use used see saw find found make made build built write wrote
+      read chose choose picked pick take took run ran get got give gave ask asked tell told did
+      do had have like liked love loved expect expected mean meant call called tried try set
+      shipped ship sent send add added hit know knew think thought bought buy paid pay hired
+      hire met meet heard hear lost lose kept keep left leave started start opened open closed
+      close sold sell
+    ].freeze
+
+    # Words that can sit before a pronoun without being the head noun of a relative clause.
+    NOT_A_NOUN = %w[
+      and but or nor if so because when while as that than then once since until though whether
+      where what who whom whose how why which is are was were be been am to of in on at for with
+      by from said say says think thought know knew believe see saw hope guess mean feel felt bet
+      wish suppose assume reckon like
+    ].freeze
+
+    DENOMINAL_VERB_NOUNS = %w[
+      footnote calendar bottleneck inbox ticket dashboard spreadsheet pipeline backlog roadmap whiteboard
+    ].freeze
+
     # ── Helper Methods ───────────────────────────────────
 
     module_function
@@ -615,6 +658,56 @@ module Humanizer
           nbsp_matches = TextUtils.find_matches(text, nbsp, "Replace non-breaking spaces with regular spaces unless formatting requires them.", confidence: "medium")
           results.concat(nbsp_matches) if nbsp_matches.length >= 2
           results
+        }
+      ),
+
+      Pattern.new(
+        id: 30, name: "Inanimate subject with animate verb", category: :language, weight: 2,
+        description: 'A thing doing what only a person does: "the parser swallows that error", "the queue wants a fresh token". Clark, Martin & Mahowald (2026) find every frontier model overuses this.',
+        detector: ->(text) {
+          nouns = INANIMATE_SUBJECT_NOUNS.join("|")
+          verbs = ANIMATE_ONLY_VERBS.join("|")
+          adverbs = "also|then|simply|just|quietly|silently|still|never|always"
+          noun_subject = /\b(?:the|this|that|each|every|our|your|its|my|their)\s+(?:[a-z][\w-]*\s+){0,2}?(?:#{nouns})(?:e?s)?\s+(?:(?:#{adverbs})\s+)?(?:#{verbs})\b/i
+          code_subject = /`[^`\n]{1,60}`\s+(?:(?:#{adverbs})\s+)?(?:#{verbs})\b/i
+          [ noun_subject, code_subject ].flat_map { |re|
+            TextUtils.find_matches(text, re, "Say what the code does, not what it wants or thinks. Name the person or the real mechanism.", confidence: "medium")
+          }
+        }
+      ),
+
+      Pattern.new(
+        id: 31, name: "Reduced object relative clauses", category: :language, weight: 1,
+        description: 'Noun + pronoun + verb with no "that": "the approach we chose", "the cache state you set". Humans use a few; models stack them (Clark et al., 2026). Flagged only when 3 or more appear, at 1 per 100 words or denser.',
+        detector: ->(text) {
+          verbs = REDUCED_RELATIVE_VERBS.join("|")
+          re = /\b(?:the|a|an|this|that|these|those|every|each|any|some|our|your|my|their)\s+(?:[a-z][a-z'-]*\s+){0,2}?([a-z][a-z'-]*)\s+(?:I|we|you|they|he|she)\s+(?:#{verbs})\b/i
+          hits = []
+          lines = text.split("\n")
+          offset = 0
+          lines.each_with_index do |line, line_idx|
+            line.scan(re) do
+              m = Regexp.last_match
+              next if NOT_A_NOUN.include?(m[1].downcase)
+              hits << { match: m[0], index: offset + m.begin(0), line: line_idx + 1, column: m.begin(0) + 1,
+                        suggestion: 'Add "that" or split the sentence so the reader does not have to re-parse it.', confidence: "low" }
+            end
+            offset += line.length + 1
+          end
+          words = TextUtils.word_count(text)
+          hits.length >= 3 && hits.length * 100.0 / [ words, 1 ].max >= 1.0 ? hits : []
+        }
+      ),
+
+      Pattern.new(
+        id: 32, name: "Ad hoc denominal verbs", category: :language, weight: 2,
+        description: 'A noun turned into a verb on the spot: "footnote it", "calendar this", "roadmap it". Clark et al. (2026) find models use these more than people.',
+        detector: ->(text) {
+          nouns = DENOMINAL_VERB_NOUNS.join("|")
+          TextUtils.find_matches(
+            text, /\b(?:#{nouns})(?:s|ed|ing)?\s+(?:it|this|that|them)\b/i,
+            "Use the plain verb phrase: put it in a footnote, add it to the calendar.", confidence: "medium"
+          )
         }
       ),
     ].freeze
